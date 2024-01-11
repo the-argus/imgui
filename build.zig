@@ -30,12 +30,12 @@ pub const Backend = enum {
     DX10,
 };
 
-pub fn getSources(b: *std.Build, backend: Backend) []const []const u8 {
+pub fn getSources(b: *std.Build, backend: Backend) ![]const []const u8 {
     var sources = std.ArrayList([]const u8).init(b.allocator);
     defer sources.deinit();
-    sources.appendSlice(cpp_sources) catch @panic("OOM");
+    try sources.appendSlice(cpp_sources);
 
-    const slice: []const u8 = switch (backend) {
+    const slice: []const []const u8 = switch (backend) {
         .OSX => &.{"backends/imgui_impl_osx.mm"},
         .SDL2 => &.{
             "backends/imgui_impl_sdlrenderer2.cpp",
@@ -58,9 +58,9 @@ pub fn getSources(b: *std.Build, backend: Backend) []const []const u8 {
         .DX12 => &.{"backends/imgui_impl_dx12.cpp"},
     };
 
-    sources.appendSlice(slice) catch @panic("OOM");
+    try sources.appendSlice(slice);
 
-    return sources.toOwnedSlice() catch @panic("OOM");
+    return try sources.toOwnedSlice();
 }
 
 pub fn build(b: *std.Build) !void {
@@ -81,7 +81,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
     });
 
-    const sources: []const []const u8 = getSources(b, backend);
+    const sources = getSources(b, backend) catch @panic("OOM");
     for (sources) |file| {
         const output = b.pathJoin(&.{ "src", std.fs.path.basename(file) });
         b.installFile(file, output);
@@ -91,16 +91,15 @@ pub fn build(b: *std.Build) !void {
     b.getInstallStep().dependOn(&b.addInstallHeaderFile("imgui_internal.h", "imgui_internal.h").step);
     b.getInstallStep().dependOn(&b.addInstallHeaderFile("imstb_rectpack.h", "imstb_rectpack.h").step);
     b.getInstallStep().dependOn(&b.addInstallHeaderFile("imstb_textedit.h", "imstb_textedit.h").step);
-    b.getInstallStep().dependOn(&b.addInstallHeaderFile("imstb_trutype.h", "imstb_trutype.h").step);
-    b.getInstallStep().dependOn(&b.addInstallHeaderFile("imstb_trutype.h", "imstb_trutype.h").step);
-    const headers: []const u8 = switch (backend) {
+    b.getInstallStep().dependOn(&b.addInstallHeaderFile("imstb_truetype.h", "imstb_truetype.h").step);
+    const headers: []const []const u8 = switch (backend) {
         .OSX => &.{"backends/imgui_impl_osx.h"},
         .SDL2 => &.{
-            "backends/imgui_impl_sdl2",
+            "backends/imgui_impl_sdl2.h",
             "backends/imgui_impl_sdlrenderer2.h",
         },
         .SDL3 => &.{
-            "backends/imgui_impl_sdl3",
+            "backends/imgui_impl_sdl3.h",
             "backends/imgui_impl_sdlrenderer3.h",
         },
         .Vulkan => &.{"imgui_impl_vulkan.h"},
@@ -127,12 +126,12 @@ pub fn build(b: *std.Build) !void {
             .SDL2 => lib.linkSystemLibrary("SDL2"),
             .SDL3 => lib.linkSystemLibrary("SDL3"),
             .OSX => lib.linkFramework("Cocoa"),
-            .Vulkan => lib.linkLibrary("vulkan"),
-            .GLFW => lib.linkLibrary("glfw"),
-            .GLUT => lib.linkLibrary("glut"),
-            .Win32 => lib.linkLibrary("win32"),
-            .OpenGL3 => lib.linkLibrary("opengl3"),
-            .OpenGL2 => lib.linkLibrary("opengl2"),
+            .Vulkan => lib.linkSystemLibrary("vulkan"),
+            .GLFW => lib.linkSystemLibrary("glfw"),
+            .GLUT => lib.linkSystemLibrary("glut"),
+            .Win32 => lib.linkSystemLibrary("win32"),
+            .OpenGL3 => lib.linkSystemLibrary("opengl3"),
+            .OpenGL2 => lib.linkSystemLibrary("opengl2"),
             else => @panic("Unsupported platform for building imgui with system libs"),
         }
 
@@ -147,6 +146,6 @@ pub fn build(b: *std.Build) !void {
 
     {
         const flags_owned = flags.toOwnedSlice() catch @panic("OOM");
-        lib.addCSourceFiles(getSources(b, backend), flags_owned);
+        lib.addCSourceFiles(getSources(b, backend) catch @panic("OOM"), flags_owned);
     }
 }
