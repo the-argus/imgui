@@ -104,6 +104,8 @@ pub fn build(b: *std.Build) !void {
     var sources = std.ArrayList([]const u8).init(b.allocator);
     defer sources.deinit();
 
+    sources.appendSlice(cpp_sources) catch @panic("OOM");
+
     for (backend_files.sources) |source_file| {
         const ext = std.fs.path.extension(source_file);
         if (ext.len != 0) {
