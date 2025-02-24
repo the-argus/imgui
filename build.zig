@@ -10,7 +10,7 @@ const cpp_sources = &[_][]const u8{
 };
 
 const include_dirs = &[_][]const u8{
-    "src/",
+    ".",
 };
 
 pub const Backend = enum {
@@ -18,6 +18,7 @@ pub const Backend = enum {
     SDL2,
     SDL3,
     Vulkan,
+    Metal,
     WGPU,
     Win32,
     OpenGL3,
@@ -30,39 +31,6 @@ pub const Backend = enum {
     DX10,
 };
 
-pub fn getSources(b: *std.Build, backend: Backend) ![]const []const u8 {
-    var sources = std.ArrayList([]const u8).init(b.allocator);
-    defer sources.deinit();
-    try sources.appendSlice(cpp_sources);
-
-    const slice: []const []const u8 = switch (backend) {
-        .OSX => &.{"backends/imgui_impl_osx.mm"},
-        .SDL2 => &.{
-            "backends/imgui_impl_sdlrenderer2.cpp",
-            "backends/imgui_impl_sdl2.cpp",
-        },
-        .SDL3 => &.{
-            "backends/imgui_impl_sdlrenderer3.cpp",
-            "backends/imgui_impl_sdl3.cpp",
-        },
-        .Vulkan => &.{"backends/imgui_impl_vulkan.cpp"},
-        .WGPU => &.{"backends/imgui_impl_wpgu.cpp"},
-        .Win32 => &.{"backends/imgui_impl_win32.cpp"},
-        .OpenGL3 => &.{"backends/imgui_impl/opengl3.cpp"},
-        .OpenGL2 => &.{"backends/imgui_impl/opengl2.cpp"},
-        .GLUT => &.{"backends/imgui_impl_glut.cpp"},
-        .GLFW => &.{"backends/imgui_impl_glfw.cpp"},
-        .DX9 => &.{"backends/imgui_impl_dx9.cpp"},
-        .DX10 => &.{"backends/imgui_impl_dx10.cpp"},
-        .DX11 => &.{"backends/imgui_impl_dx11.cpp"},
-        .DX12 => &.{"backends/imgui_impl_dx12.cpp"},
-    };
-
-    try sources.appendSlice(slice);
-
-    return try sources.toOwnedSlice();
-}
-
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const mode = b.standardOptimizeOption(.{});
@@ -74,52 +42,84 @@ pub fn build(b: *std.Build) !void {
     var flags = std.ArrayList([]const u8).init(b.allocator);
     defer flags.deinit();
 
-    var lib: *std.Build.CompileStep =
-        b.addStaticLibrary(.{
+    var lib = b.addStaticLibrary(.{
         .name = "imgui",
         .optimize = mode,
         .target = target,
     });
 
-    const sources = getSources(b, backend) catch @panic("OOM");
-    for (sources) |file| {
-        const output = b.pathJoin(&.{ "src", std.fs.path.basename(file) });
-        b.installFile(file, output);
-    }
+    b.getInstallStep().dependOn(&b.addInstallHeaderFile(b.path("imgui.h"), "imgui.h").step);
+    b.getInstallStep().dependOn(&b.addInstallHeaderFile(b.path("imgui_internal.h"), "imgui_internal.h").step);
+    b.getInstallStep().dependOn(&b.addInstallHeaderFile(b.path("imstb_rectpack.h"), "imstb_rectpack.h").step);
+    b.getInstallStep().dependOn(&b.addInstallHeaderFile(b.path("imstb_textedit.h"), "imstb_textedit.h").step);
+    b.getInstallStep().dependOn(&b.addInstallHeaderFile(b.path("imstb_truetype.h"), "imstb_truetype.h").step);
 
-    b.getInstallStep().dependOn(&b.addInstallHeaderFile("imgui.h", "imgui.h").step);
-    b.getInstallStep().dependOn(&b.addInstallHeaderFile("imgui_internal.h", "imgui_internal.h").step);
-    b.getInstallStep().dependOn(&b.addInstallHeaderFile("imstb_rectpack.h", "imstb_rectpack.h").step);
-    b.getInstallStep().dependOn(&b.addInstallHeaderFile("imstb_textedit.h", "imstb_textedit.h").step);
-    b.getInstallStep().dependOn(&b.addInstallHeaderFile("imstb_truetype.h", "imstb_truetype.h").step);
-    const headers: []const []const u8 = switch (backend) {
-        .OSX => &.{"backends/imgui_impl_osx.h"},
-        .SDL2 => &.{
-            "backends/imgui_impl_sdl2.h",
-            "backends/imgui_impl_sdlrenderer2.h",
-        },
-        .SDL3 => &.{
-            "backends/imgui_impl_sdl3.h",
-            "backends/imgui_impl_sdlrenderer3.h",
-        },
-        .Vulkan => &.{"imgui_impl_vulkan.h"},
-        .WGPU => &.{"backends/imgui_impl_wpgu.h"},
-        .Win32 => &.{"backends/imgui_impl_win32.h"},
-        .OpenGL3 => &.{"backends/imgui_impl/opengl3.h"},
-        .OpenGL2 => &.{"backends/imgui_impl/opengl2.h"},
-        .GLUT => &.{"backends/imgui_impl_glut.h"},
-        .GLFW => &.{"backends/imgui_impl_glfw.h"},
-        .DX9 => &.{"backends/imgui_impl_dx9.h"},
-        .DX10 => &.{"backends/imgui_impl_dx10.h"},
-        .DX11 => &.{"backends/imgui_impl_dx11.h"},
-        .DX12 => &.{"backends/imgui_impl_dx12.h"},
+    const BackendFiles = struct {
+        sources: []const []const u8,
+        // if not specified, assumed that you want sources names but with .h
+        headers: ?[]const []const u8 = null,
     };
 
-    for (headers) |header| {
-        b.getInstallStep().dependOn(&b.addInstallHeaderFile(header, std.fs.path.basename(header)).step);
+    const backend_files: BackendFiles = switch (backend) {
+        .OSX => BackendFiles{ .sources = &.{"backends/imgui_impl_osx.mm"}, .headers = &.{"backends/imgui_impl_osx.h"} },
+        .SDL2 => BackendFiles{ .sources = &.{
+            "backends/imgui_impl_sdl2",
+            "backends/imgui_impl_sdlrenderer2",
+        } },
+        .SDL3 => BackendFiles{ .sources = &.{
+            "backends/imgui_impl_sdl3",
+            "backends/imgui_impl_sdlrenderer3",
+        } },
+        .Vulkan => BackendFiles{ .sources = &.{"backends/imgui_impl_vulkan"} },
+        .WGPU => BackendFiles{ .sources = &.{"backends/imgui_impl_wgpu"} },
+        .Win32 => BackendFiles{ .sources = &.{"backends/imgui_impl_win32"} },
+        .OpenGL3 => BackendFiles{
+            .sources = &.{"backends/imgui_impl_opengl3.cpp"},
+            .headers = &.{
+                "backends/imgui_impl_opengl3.h",
+                "backends/imgui_impl_opengl3_loader.h",
+            },
+        },
+        .OpenGL2 => BackendFiles{ .sources = &.{"backends/imgui_impl_opengl2"} },
+        .Metal => BackendFiles{
+            .sources = &.{"backends/imgui_impl_metal.mm"},
+            .headers = &.{"backends/imgui_impl_metal.h"},
+        },
+        .GLUT => BackendFiles{ .sources = &.{"backends/imgui_impl_glut"} },
+        .GLFW => BackendFiles{ .sources = &.{"backends/imgui_impl_glfw"} },
+        .DX9 => BackendFiles{ .sources = &.{"backends/imgui_impl_dx9"} },
+        .DX10 => BackendFiles{ .sources = &.{"backends/imgui_impl_dx10"} },
+        .DX11 => BackendFiles{ .sources = &.{"backends/imgui_impl_dx11"} },
+        .DX12 => BackendFiles{ .sources = &.{"backends/imgui_impl_dx12"} },
+    };
+
+    if (backend_files.headers != null) {
+        for (backend_files.headers.?) |header| {
+            b.getInstallStep().dependOn(
+                &b.addInstallHeaderFile(b.path(header), std.fs.path.basename(header)).step,
+            );
+        }
     }
 
-    lib.addIncludePath(.{ .path = "." });
+    var sources = std.ArrayList([]const u8).init(b.allocator);
+    defer sources.deinit();
+
+    for (backend_files.sources) |source_file| {
+        const ext = std.fs.path.extension(source_file);
+        if (ext.len != 0) {
+            try sources.append(source_file);
+        } else {
+            try sources.append(b.fmt("{s}.cpp", .{source_file}));
+        }
+    }
+
+    // install sources so that downstream can handle building if desired
+    for (sources.items) |filename| {
+        const output = b.pathJoin(&.{ "src", std.fs.path.basename(filename) });
+        b.installFile(filename, output);
+    }
+
+    lib.addIncludePath(b.path("."));
 
     if (build_lib) {
         switch (backend) {
@@ -146,6 +146,9 @@ pub fn build(b: *std.Build) !void {
 
     {
         const flags_owned = flags.toOwnedSlice() catch @panic("OOM");
-        lib.addCSourceFiles(getSources(b, backend) catch @panic("OOM"), flags_owned);
+        lib.addCSourceFiles(.{
+            .files = sources.toOwnedSlice() catch @panic("OOM"),
+            .flags = flags_owned,
+        });
     }
 }
